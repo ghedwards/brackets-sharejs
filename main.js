@@ -8,7 +8,9 @@ define(function (require, exports, module) {
         EditorManager   = brackets.getModule("editor/EditorManager"),
         DocumentManager = brackets.getModule("document/DocumentManager"),
         Menus           = brackets.getModule("command/Menus"),
-        preActionCodemirrorContent;
+        preActionCodemirrorContent,
+        doc = null,
+        isHost          = true;
     
     var SHARE_WITH_START = "share.with.start",
         SHARE_WITH_STOP = "share.with.stop";
@@ -86,13 +88,32 @@ define(function (require, exports, module) {
         
         if (!editor || !editor._codeMirror) { return; }
 
-        sharejs.open('blag', 'text', 'http://127.0.0.1:8099/channel', function (error, doc) {
-            doc.attach_codemirror(editor._codeMirror, true);
+        sharejs.open('blag', 'text', { origin: 'http://127.0.0.1:8099/channel' }, function (error, newDoc) {
+            
+            if (doc !== undefined && doc !== null) {
+                doc.close();
+                if (doc.detach_codemirror !== undefined) {
+                    doc.detach_codemirror();
+                }
+            }
+            
+            doc = newDoc;
+        
+            if (error) {
+                
+                console.log("ERROR:", error);
+                
+            } else {
+                
+                doc.attach_codemirror(editor._codeMirror, isHost);
+            
+            }
+        
         });
         
     }
     
-    var _requireShare = function () {
+    var _requireShare = function (mode) {
         
         var dfd = $.Deferred();
         
@@ -101,11 +122,11 @@ define(function (require, exports, module) {
             require("bcsocket");
                 
             require(["share"], function () {
-            
-                sharejs.Doc.prototype.attach_codemirror = function (editor, keepEditorContents) {
+                
+                sharejs.Doc.prototype.attach_codemirror = function (editor, host) {
                     
                     var doc = this, editorDoc = editor, editorListener, suppress;
-                  
+                    
                     if (!this.provides.text) {
                         throw new Error('Only text documents can be attached to CodeMirror');
                     }
@@ -121,11 +142,15 @@ define(function (require, exports, module) {
                         }, 0);
                     };
         
-                    if (keepEditorContents) {
+                    if (host === true) {
+                        
                         doc.del(0, doc.getText().length);
                         doc.insert(0, editorDoc.getValue());
+                
                     } else {
+                    
                         editorDoc.setValue(doc.getText());
+                    
                     }
                     
                     preActionCodemirrorContent = editorDoc.getValue();
@@ -161,12 +186,11 @@ define(function (require, exports, module) {
                         return check();
                     });*/
                     
+                    
                     doc.detach_codemirror = function () {
                         
                         editorDoc.removeListener('change', editorListener);
                         
-                        return delete doc.detach_codemirror;
-                    
                     };
                     
                     dfd.resolve();
@@ -186,17 +210,25 @@ define(function (require, exports, module) {
     
     function _documentChange() {
         
-        refreshCodeMirror();
+        _requireShare().then(function () {
             
+            refreshCodeMirror();
+        
+        });
+        
     }
     
     function _shareWithStart() {
+        
+        isHost = true;
         
         _requireShare().then(function () {
             
             $(DocumentManager).on("currentDocumentChange", _documentChange);
         
             refreshCodeMirror();
+            
+            CommandManager.get(SHARE_WITH_STOP).setEnabled(true);
         
         });
         
@@ -204,8 +236,15 @@ define(function (require, exports, module) {
     
     function _shareWithStop() {
         
-        // Share with Stop
+        if (doc !== undefined && doc !== null) {
+            doc.close();
+            if (doc.detach_codemirror !== undefined) {
+                doc.detach_codemirror();
+            }
+        }
         
+        CommandManager.get(SHARE_WITH_STOP).setEnabled(false);
+                    
     }
     
     function _init() {
@@ -225,7 +264,5 @@ define(function (require, exports, module) {
     CommandManager.register("Share With ( stop )", SHARE_WITH_STOP, _shareWithStop).setEnabled(false);
     
     _init();
-    
-    //_startShare();
 
 });
